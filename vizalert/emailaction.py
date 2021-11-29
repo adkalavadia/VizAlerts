@@ -119,6 +119,9 @@ def send_email(email_instance):
         if email_instance.appendattachments != None:
             appendattachments = vizalert.merge_pdf_attachments(email_instance.appendattachments)
             for vizref in appendattachments:
+                # check for filesize, if greater than 10 MB, compress it into zip file.
+                # TODO 
+
                 # if there is no |filename= option set then use the exported imagepath
                 if 'filename' not in vizref:
                     msg.attach(mimify_file(vizref['imagepath'], inline=False))

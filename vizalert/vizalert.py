@@ -43,6 +43,7 @@ ARGUMENT_DELIMITER = '|'
 GENERAL_SORTORDER_FIELDKEY = 'Consolidated Sort'
 CONSOLIDATE_LINES_FIELDKEY = 'Consolidate Lines'
 
+
 # Email Action fields
 EMAIL_ACTION_FIELDKEY = 'Email Action'
 EMAIL_TO_FIELDKEY = 'Email To'
@@ -54,6 +55,8 @@ EMAIL_BODY_FIELDKEY = 'Email Body'
 EMAIL_ATTACHMENT_FIELDKEY = 'Email Attachment'
 EMAIL_HEADER_FIELDKEY = 'Email Header'
 EMAIL_FOOTER_FIELDKEY = 'Email Footer'
+EMAIL_COLUMNORDER_FIELDKEY = 'Column Order'
+EMAIL_COMPRESSFILE_FIELDKEY = 'Compress File'
 
 # SMS Action fields
 SMS_ACTION_FIELDKEY = 'SMS Action'
@@ -418,6 +421,11 @@ class VizAlert(object):
             ActionField(EMAIL_FOOTER_FIELDKEY, EMAIL_ACTION_TYPE, False, False, ' ?Email.Footer')
         self.action_field_dict[EMAIL_ATTACHMENT_FIELDKEY] = \
             ActionField(EMAIL_ATTACHMENT_FIELDKEY, EMAIL_ACTION_TYPE, False, False, ' ?Email.Attachment')
+        self.action_field_dict[EMAIL_COLUMNORDER_FIELDKEY] = \
+            ActionField(EMAIL_COLUMNORDER_FIELDKEY, EMAIL_ACTION_TYPE, False, False, ' ?Column.Order')
+        self.action_field_dict[EMAIL_COMPRESSFILE_FIELDKEY] = \
+            ActionField(EMAIL_COMPRESSFILE_FIELDKEY, EMAIL_ACTION_TYPE, False, False, ' ?Compress.File')
+            
 
         # SMS Action fields
         self.action_field_dict[SMS_ACTION_FIELDKEY] = \
@@ -901,6 +909,7 @@ class VizAlert(object):
         log.logger.debug('Performing alert actions now')
 
         # check for any errors we've detected so far
+        # todo to stop aborting - Ankur
         if len(self.error_list) > 0:
             log.logger.debug('Errors found in alert, aborting execution')
             self.alert_failure()
@@ -971,7 +980,10 @@ class VizAlert(object):
             # run the advanced alert
             elif self.alert_type == ADVANCED_ALERT:
                 log.logger.debug('Processing as an advanced alert')
+                email_columnorder_fieldname = self.action_field_dict[EMAIL_COLUMNORDER_FIELDKEY].field_name
+                email_compressfile_fieldname = self.action_field_dict[EMAIL_COMPRESSFILE_FIELDKEY].field_name
 
+                # log.logger.debug('trigger data:{}'.format(self.trigger_data))
                 try:
                     vizcompleterefs = self.find_viz_refs(self.trigger_data)
                 except Exception as e:
@@ -979,6 +991,8 @@ class VizAlert(object):
                                    ':<br /> {}'.format(e.args[0])
                     log.logger.error(errormessage)
                     raise UserWarning(errormessage)
+
+                # log.logger.debug('Complete Result - vizcompleterefs : {}'.format(vizcompleterefs))
 
                 # determine whether we're consolidating lines
                 consolidate_lines_fieldname = self.action_field_dict[CONSOLIDATE_LINES_FIELDKEY].field_name
@@ -1011,6 +1025,7 @@ class VizAlert(object):
                     inlineattachments = []
                     appendattachments = []
                     email_instance = None
+                    email_columnorder = ''
 
                     # Process each row of data
                     for i, row in enumerate(data):
@@ -1045,6 +1060,19 @@ class VizAlert(object):
                             else:
                                 email_bcc = None
 
+                            if email_columnorder_fieldname:
+                                email_columnorder = row[email_columnorder_fieldname]
+                            else:
+                                email_columnorder = None
+                            log.logger.debug('email_columnorder is {}'.format(email_columnorder))
+
+                            if email_compressfile_fieldname:
+                                email_compressfile = row[email_compressfile_fieldname]
+                            else:
+                                email_compressfile = '0'
+                            log.logger.debug('email_compressfile is {}'.format(email_compressfile))
+
+
                             # Append header row, if provided -- but only if this is the first consolidation iteration
                             #  (for non-consoidated setting, each row will always be the first iteration)
                             if email_header_fieldname and consolidate_email_ctr == 0:
@@ -1068,7 +1096,7 @@ class VizAlert(object):
                                     try:  # remove this later??
                                         body, inlineattachments = self.append_body_and_inlineattachments(
                                             body, inlineattachments, row, vizcompleterefs)
-                                        appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs)
+                                        appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs,email_columnorder,email_compressfile)
 
                                         # send the email
                                         email_instance = emailaction.Email(
@@ -1134,7 +1162,7 @@ class VizAlert(object):
                                         body.append(email_body_line)
                                         if self.action_field_dict[EMAIL_ATTACHMENT_FIELDKEY].field_name and \
                                                 len(row[self.action_field_dict[EMAIL_ATTACHMENT_FIELDKEY].field_name]) > 0:
-                                            appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs)
+                                            appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs,email_columnorder,email_compressfile)
                                         consolidate_email_ctr += 1
                                     else:
                                         log.logger.debug('Next row does not match recips and subject, sending consolidated email')
@@ -1146,7 +1174,7 @@ class VizAlert(object):
 
                                         body, inlineattachments = self.append_body_and_inlineattachments(body, inlineattachments,
                                                                                                     row, vizcompleterefs)
-                                        appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs)
+                                        appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs,email_columnorder,email_compressfile)
 
                                         # send the email
                                         try:
@@ -1177,7 +1205,7 @@ class VizAlert(object):
 
                                 body, inlineattachments = self.append_body_and_inlineattachments(body, inlineattachments, row,
                                                                                             vizcompleterefs)
-                                appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs)
+                                appendattachments = self.append_attachments(appendattachments, row, vizcompleterefs,email_columnorder,email_compressfile)
 
                                 try:
                                     email_instance = emailaction.Email(
@@ -1390,7 +1418,6 @@ class VizAlert(object):
         #   Yes, this is redundant and awful but we'll address it later
 
         viewurlsuffix = self.view_url_suffix
-
         email_action_fieldname = self.action_field_dict[EMAIL_ACTION_FIELDKEY].field_name
         email_body_fieldname = self.action_field_dict[EMAIL_BODY_FIELDKEY].field_name
         email_header_fieldname = self.action_field_dict[EMAIL_HEADER_FIELDKEY].field_name
@@ -1703,7 +1730,7 @@ class VizAlert(object):
         # return the list
         return uniquelist
 
-    def append_attachments(self, appendattachments, row, vizcompleterefs):
+    def append_attachments(self, appendattachments, row, vizcompleterefs,columnorder,compressfile):
         """generic function for adding appended (non-inline) attachments"""
 
         # there can be multiple content references in a single email attachment field
@@ -1718,6 +1745,20 @@ class VizAlert(object):
             for attachmentref in attachmentrefs:
                 # only make appended attachments when they are needed
                 if attachmentref not in appendattachments:
+
+                    filepath_withoutext, ext = os.path.splitext(vizcompleterefs[attachmentref]['imagepath'])
+                    if eval('tabhttp.Format.' + vizcompleterefs[attachmentref]['formatstring']) == tabhttp.Format.CSV and ext != '.zip' and columnorder != '':
+                        tabhttp.arrange_csv_order(vizcompleterefs[attachmentref]['imagepath'],columnorder)
+                    
+                    if eval('tabhttp.Format.' + vizcompleterefs[attachmentref]['formatstring']) == tabhttp.Format.CSV and ext != '.zip' and compressfile == '1':
+                        zippath = tabhttp.compress_csv(vizcompleterefs[attachmentref]['imagepath'])
+                        log.logger.debug('BEFORE: {}'.format(vizcompleterefs[attachmentref]['imagepath']))
+                        vizcompleterefs[attachmentref]['imagepath'] = zippath
+                        log.logger.debug('AFTER: {}'.format(vizcompleterefs[attachmentref]['imagepath']))
+
+                        if 'filename' in vizcompleterefs[attachmentref] and len(vizcompleterefs[attachmentref]['filename']) > 0:
+                            vizcompleterefs[attachmentref]['filename'] = vizcompleterefs[attachmentref]['filename'].replace('.csv','.zip')  
+                        
                     appendattachments.append(vizcompleterefs[attachmentref])
 
         return appendattachments

@@ -13,6 +13,7 @@ import codecs
 import re
 import ssl
 import threading
+import pandas as pd
 from . import config
 from . import log
 from requests_ntlm import HttpNtlmAuth
@@ -238,6 +239,7 @@ def export_view(view_url_suffix, site_name, timeout_s, data_retrieval_tries, for
                 lateststr = realstr.replace('\r\n', '\n')
                 finalbinary = lateststr.encode()
                 f.write(finalbinary) # remove extra carriage returns
+
             else:
                 f = open(filepath, 'wb')
                 for block in response.iter_content(1024):
@@ -245,6 +247,7 @@ def export_view(view_url_suffix, site_name, timeout_s, data_retrieval_tries, for
                         break
                     f.write(block)
             f.close()
+
             return filepath
         except requests.exceptions.Timeout as e:
             errormessage = html.escape('Timeout error. Could not retrieve vizdata from url {} within {} seconds, after {} tries'.format(displayurl, timeout_s, attempts))
@@ -303,3 +306,38 @@ def export_view(view_url_suffix, site_name, timeout_s, data_retrieval_tries, for
 
         # got through with no errors
         break
+
+def arrange_csv_order(filepath,columnOrder):
+    log.logger.info('arrange_csv_order Column Order: {}'.format(columnOrder))
+    try :
+	    columnOrderList = columnOrder.split("|")
+	    df = pd.read_csv(filepath)
+	    df.columns = df.columns.str.strip()
+	    df_reorder = df[columnOrderList] 
+	    fileName=os.path.basename(filepath)
+	    df_reorder.to_csv(filepath, index=False)
+        
+    except Exception as e :
+        errormessage = html.escape('Error found in arrange_csv_order method: {}'.format( e))
+        log.logger.info('arrange_csv_order: FAILED')
+        log.logger.error(errormessage)
+
+def compress_csv(filepath):
+    log.logger.info('Going to compress csv into zip')
+    try :
+        filepath_withoutext, ext = os.path.splitext(filepath)
+        df = pd.read_csv(filepath)
+        compression_opts = dict(method='zip',
+                        archive_name=os.path.basename(filepath) ) 
+                        
+        df.to_csv(filepath_withoutext + ".zip", 
+           index=False, 
+           compression=compression_opts)
+
+        return filepath_withoutext + ".zip"
+    except Exception as e :
+        errormessage = html.escape('Error found in compress_csv method: {}'.format( e))
+        log.logger.info('compress_csv: FAILED')
+        log.logger.error(errormessage)
+
+         
